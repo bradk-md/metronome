@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Chord Metronome - Measure Sync</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1e1e24;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        
+        .container {
+            text-align: center;
+            background: #2b2b36;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: 90%;
+            max-width: 450px;
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 1.5rem;
+            color: #a9b0c0;
+        }
+
+        .controls {
+            margin: 20px 0;
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="number"] {
+            width: 80px;
+            padding: 10px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            border: none;
+            text-align: center;
+            background: #444455;
+            color: white;
+        }
+
+        .measure-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 30px 0 10px 0;
+        }
+
+        .beat-dot {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background-color: #444455;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            color: #888;
+            transition: background-color 0.05s ease, box-shadow 0.05s ease;
+        }
+
+        /* Beat 1 Accent */
+        .beat-dot.active-accent {
+            background-color: #4facfe;
+            color: #1e1e24;
+            box-shadow: 0 0 20px #4facfe;
+        }
+
+        /* Beats 2, 3, 4 */
+        .beat-dot.active {
+            background-color: #00ff88;
+            color: #1e1e24;
+            box-shadow: 0 0 20px #00ff88;
+        }
+
+        /* Highlight Beat 4 to show the chord is changing */
+        .beat-dot.active-prep {
+            background-color: #ffaa00;
+            color: #1e1e24;
+            box-shadow: 0 0 20px #ffaa00;
+        }
+
+        #chordDisplay {
+            font-size: 6rem;
+            font-weight: bold;
+            height: 120px;
+            line-height: 120px;
+            margin: 10px 0 30px 0;
+            color: #ffffff;
+            transition: color 0.1s;
+        }
+
+        button {
+            background: #4facfe;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.1s, background 0.2s;
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        button.playing {
+            background: #ff4b4b;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Chord Practice Metronome</h1>
+        
+        <div class="controls">
+            <label for="bpm">BPM:</label>
+            <input type="number" id="bpm" value="50" min="10" max="240">
+        </div>
+
+        <!-- 4-Beat Measure Display -->
+        <div class="measure-indicator">
+            <div class="beat-dot" id="dot-0">1</div>
+            <div class="beat-dot" id="dot-1">2</div>
+            <div class="beat-dot" id="dot-2">3</div>
+            <div class="beat-dot" id="dot-3">4</div>
+        </div>
+
+        <div id="chordDisplay">-</div>
+
+        <button id="startStopBtn">START</button>
+    </div>
+
+    <script>
+        const chords = ['C', 'A', 'G', 'E', 'D', 'Em'];
+        let isPlaying = false;
+        let timerID;
+        let audioCtx;
+        let currentBeat = 0; // Tracks which beat of the measure we are on (0 to 3)
+        const beatsPerMeasure = 4;
+
+        const bpmInput = document.getElementById('bpm');
+        const startStopBtn = document.getElementById('startStopBtn');
+        const chordDisplay = document.getElementById('chordDisplay');
+
+        function playBeep(frequency) {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime); 
+            
+            gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + 0.1);
+        }
+
+        let lastChord = '';
+
+        function updateChord() {
+            let randomChord;
+            do {
+                randomChord = chords[Math.floor(Math.random() * chords.length)];
+            } while (randomChord === lastChord);
+            
+            lastChord = randomChord;
+            chordDisplay.innerText = randomChord;
+        }
+
+        function triggerBeat() {
+            // 1. Play the audio beep (Higher pitch for Beat 1)
+            const frequency = (currentBeat === 0) ? 1200 : 800;
+            playBeep(frequency);
+
+            // 2. Clear visual dots, then light up the current one
+            for (let i = 0; i < beatsPerMeasure; i++) {
+                document.getElementById(`dot-${i}`).classList.remove('active', 'active-accent', 'active-prep');
+            }
+            
+            const activeDot = document.getElementById(`dot-${currentBeat}`);
+            
+            if (currentBeat === 0) {
+                activeDot.classList.add('active-accent'); // Blue for Beat 1
+                chordDisplay.style.color = "#ffffff";     // Reset text color
+            } else if (currentBeat === 3) {
+                activeDot.classList.add('active-prep');   // Orange for Beat 4 (Prep beat)
+                updateChord();                            // CHANGE CHORD JUST PRIOR TO NEW MEASURE
+                chordDisplay.style.color = "#ffaa00";     // Flash chord text orange to show it changed
+            } else {
+                activeDot.classList.add('active');        // Green for 2, 3
+                chordDisplay.style.color = "#ffffff";     // Reset text color
+            }
+
+            // 3. Move to the next beat
+            currentBeat = (currentBeat + 1) % beatsPerMeasure;
+        }
+
+        function startMetronome() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
+            const bpm = parseInt(bpmInput.value);
+            const intervalMs = (60 / bpm) * 1000;
+
+            // Generate the very first chord before starting
+            updateChord();
+
+            currentBeat = 0; 
+            triggerBeat(); 
+            timerID = setInterval(triggerBeat, intervalMs);
+            
+            startStopBtn.innerText = 'STOP';
+            startStopBtn.classList.add('playing');
+            isPlaying = true;
+        }
+
+        function stopMetronome() {
+            clearInterval(timerID);
+            chordDisplay.innerText = '-';
+            chordDisplay.style.color = "#ffffff";
+            
+            for (let i = 0; i < beatsPerMeasure; i++) {
+                document.getElementById(`dot-${i}`).classList.remove('active', 'active-accent', 'active-prep');
+            }
+
+            startStopBtn.innerText = 'START';
+            startStopBtn.classList.remove('playing');
+            isPlaying = false;
+        }
+
+        startStopBtn.addEventListener('click', () => {
+            if (isPlaying) {
+                stopMetronome();
+            } else {
+                startMetronome();
+            }
+        });
+
+        bpmInput.addEventListener('change', () => {
+            if (isPlaying) {
+                clearInterval(timerID);
+                const bpm = parseInt(bpmInput.value);
+                const intervalMs = (60 / bpm) * 1000;
+                timerID = setInterval(triggerBeat, intervalMs);
+            }
+        });
+    </script>
+</body>
+</html>
