@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Random Chord Metronome - Measure Sync</title>
+    <title>Random Chord Metronome</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -13,8 +13,10 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
         }
         
         .container {
@@ -23,8 +25,8 @@
             padding: 40px;
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            width: 90%;
-            max-width: 450px;
+            width: 100%;
+            max-width: 600px;
         }
 
         h1 {
@@ -35,24 +37,94 @@
 
         .controls {
             margin: 20px 0;
-            font-size: 1.2rem;
+            font-size: 1rem;
             display: flex;
             justify-content: center;
             align-items: center;
-            gap: 10px;
+            flex-wrap: wrap;
+            gap: 15px;
         }
 
-        input[type="number"] {
-            width: 80px;
-            padding: 10px;
-            font-size: 1.2rem;
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #1e1e24;
+            padding: 8px 15px;
             border-radius: 8px;
+        }
+
+        input[type="number"], select {
+            padding: 8px;
+            font-size: 1.1rem;
+            border-radius: 5px;
             border: none;
             text-align: center;
             background: #444455;
             color: white;
+            outline: none;
+            cursor: pointer;
+        }
+        
+        input[type="number"] {
+            width: 60px;
         }
 
+        input[type="checkbox"]#voiceToggle {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            accent-color: #4facfe;
+        }
+
+        /* Chord Selector Styles */
+        .chord-settings {
+            margin: 20px 0;
+            background: #1e1e24;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .chord-settings h3 {
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+            color: #a9b0c0;
+        }
+
+        .chord-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .chord-label {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .chord-label input {
+            display: none;
+        }
+
+        .chord-pill {
+            display: inline-block;
+            padding: 6px 12px;
+            background: #444455;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .chord-label input:checked + .chord-pill {
+            background: #4facfe;
+            color: #1e1e24;
+            box-shadow: 0 0 10px rgba(79, 172, 254, 0.5);
+        }
+
+        /* Measure Indicator Styles */
         .measure-indicator {
             display: flex;
             justify-content: center;
@@ -74,21 +146,18 @@
             transition: background-color 0.05s ease, box-shadow 0.05s ease;
         }
 
-        /* Beat 1 Accent */
         .beat-dot.active-accent {
             background-color: #4facfe;
             color: #1e1e24;
             box-shadow: 0 0 20px #4facfe;
         }
 
-        /* Beats 2, 3, 4 */
         .beat-dot.active {
             background-color: #00ff88;
             color: #1e1e24;
             box-shadow: 0 0 20px #00ff88;
         }
 
-        /* Highlight Beat 4 to show the chord is changing */
         .beat-dot.active-prep {
             background-color: #ffaa00;
             color: #1e1e24;
@@ -105,11 +174,11 @@
             transition: color 0.1s;
         }
 
-        button {
+        button#startStopBtn {
             background: #4facfe;
             color: white;
             border: none;
-            padding: 15px 40px;
+            padding: 15px 50px;
             font-size: 1.5rem;
             border-radius: 50px;
             cursor: pointer;
@@ -117,11 +186,11 @@
             transition: transform 0.1s, background 0.2s;
         }
 
-        button:active {
+        button#startStopBtn:active {
             transform: scale(0.95);
         }
 
-        button.playing {
+        button#startStopBtn.playing {
             background: #ff4b4b;
         }
     </style>
@@ -132,8 +201,28 @@
         <h1>Chord Practice Metronome</h1>
         
         <div class="controls">
-            <label for="bpm">BPM:</label>
-            <input type="number" id="bpm" value="50" min="10" max="240">
+            <div class="control-group">
+                <label for="bpm">BPM:</label>
+                <input type="number" id="bpm" value="50" min="10" max="240">
+            </div>
+            <div class="control-group">
+                <label for="soundSelect">Sound:</label>
+                <select id="soundSelect">
+                    <option value="beep">Electronic Beep</option>
+                    <option value="drum">Drum Beat</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label for="voiceToggle" style="cursor: pointer;">Voice Announce:</label>
+                <input type="checkbox" id="voiceToggle">
+            </div>
+        </div>
+
+        <div class="chord-settings">
+            <h3>Select Practice Chords</h3>
+            <div class="chord-grid" id="chordGrid">
+                <!-- Chords populated by JavaScript -->
+            </div>
         </div>
 
         <!-- 4-Beat Measure Display -->
@@ -150,18 +239,97 @@
     </div>
 
     <script>
-        const chords = ['C', 'A', 'G', 'E', 'D', 'Em'];
+        // Master list of available chords
+        const masterChords = [
+            'A', 'Am', 'B', 'Bm', 'C', 'Cm', 'D', 'Dm', 'E', 'Em', 'F', 'Fm', 'G', 'Gm'
+        ];
+        
+        // Pronunciation map for the voice synthesizer
+        const chordPronunciations = {
+            'A': 'A', 'Am': 'A minor', 'B': 'B', 'Bm': 'B minor',
+            'C': 'C', 'Cm': 'C minor', 'D': 'D', 'Dm': 'D minor',
+            'E': 'E', 'Em': 'E minor', 'F': 'F', 'Fm': 'F minor',
+            'G': 'G', 'Gm': 'G minor'
+        };
+
+        const defaultChords = ['C', 'A', 'G', 'E', 'D', 'Em'];
+        let activeChords = [];
+
         let isPlaying = false;
         let timerID;
         let audioCtx;
-        let currentBeat = 0; // Tracks which beat of the measure we are on (0 to 3)
+        let currentBeat = 0; 
         const beatsPerMeasure = 4;
 
         const bpmInput = document.getElementById('bpm');
+        const soundSelect = document.getElementById('soundSelect');
+        const voiceToggle = document.getElementById('voiceToggle');
         const startStopBtn = document.getElementById('startStopBtn');
         const chordDisplay = document.getElementById('chordDisplay');
+        const chordGrid = document.getElementById('chordGrid');
 
-        function playBeep(frequency) {
+        // --- SETUP PREFERENCES ---
+        function initializePreferences() {
+            // Load Chords
+            const savedChords = localStorage.getItem('metronomeChords');
+            if (savedChords) {
+                activeChords = JSON.parse(savedChords);
+            } else {
+                activeChords = [...defaultChords];
+            }
+
+            // Create Checkboxes
+            masterChords.forEach(chord => {
+                const label = document.createElement('label');
+                label.className = 'chord-label';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = chord;
+                checkbox.checked = activeChords.includes(chord);
+                
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        activeChords.push(chord);
+                    } else {
+                        activeChords = activeChords.filter(c => c !== chord);
+                    }
+                    localStorage.setItem('metronomeChords', JSON.stringify(activeChords));
+                    
+                    if (activeChords.length === 0) chordDisplay.innerText = '-';
+                });
+
+                const pill = document.createElement('span');
+                pill.className = 'chord-pill';
+                pill.innerText = chord;
+
+                label.appendChild(checkbox);
+                label.appendChild(pill);
+                chordGrid.appendChild(label);
+            });
+
+            // Load Sound
+            if (localStorage.getItem('metronomeSound')) {
+                soundSelect.value = localStorage.getItem('metronomeSound');
+            }
+            soundSelect.addEventListener('change', (e) => {
+                localStorage.setItem('metronomeSound', e.target.value);
+            });
+
+            // Load Voice Toggle
+            const savedVoice = localStorage.getItem('metronomeVoice');
+            if (savedVoice !== null) {
+                voiceToggle.checked = savedVoice === 'true';
+            } else {
+                voiceToggle.checked = true; // Default to on
+            }
+            voiceToggle.addEventListener('change', (e) => {
+                localStorage.setItem('metronomeVoice', e.target.checked);
+            });
+        }
+
+        // --- AUDIO ENGINE ---
+        function playSound(isAccent) {
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
@@ -172,11 +340,28 @@
             oscillator.connect(gainNode);
             gainNode.connect(audioCtx.destination);
             
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime); 
-            
-            gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            const soundType = soundSelect.value;
+
+            if (soundType === 'beep') {
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(isAccent ? 1200 : 800, audioCtx.currentTime); 
+                gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+            } else {
+                if (isAccent) {
+                    oscillator.type = 'square';
+                    oscillator.frequency.setValueAtTime(400, audioCtx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                } else {
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.1);
+                    gainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                }
+            }
             
             oscillator.start(audioCtx.currentTime);
             oscillator.stop(audioCtx.currentTime + 0.1);
@@ -185,21 +370,37 @@
         let lastChord = '';
 
         function updateChord() {
-            let randomChord;
-            do {
-                randomChord = chords[Math.floor(Math.random() * chords.length)];
-            } while (randomChord === lastChord);
+            if (activeChords.length === 0) {
+                chordDisplay.innerText = '-';
+                return;
+            }
             
-            lastChord = randomChord;
-            chordDisplay.innerText = randomChord;
+            let newChord;
+            if (activeChords.length === 1) {
+                newChord = activeChords[0];
+            } else {
+                do {
+                    newChord = activeChords[Math.floor(Math.random() * activeChords.length)];
+                } while (newChord === lastChord);
+            }
+            
+            lastChord = newChord;
+            chordDisplay.innerText = newChord;
+
+            // Announce the chord via Speech Synthesis
+            if (voiceToggle.checked) {
+                window.speechSynthesis.cancel(); // Cancel previous speech to prevent overlap
+                const spokenText = chordPronunciations[newChord] || newChord;
+                const utterance = new SpeechSynthesisUtterance(spokenText);
+                utterance.rate = 1.3; // Speak slightly faster to stay out of the way of the beat
+                window.speechSynthesis.speak(utterance);
+            }
         }
 
         function triggerBeat() {
-            // 1. Play the audio beep (Higher pitch for Beat 1)
-            const frequency = (currentBeat === 0) ? 1200 : 800;
-            playBeep(frequency);
+            const isAccent = (currentBeat === 0);
+            playSound(isAccent);
 
-            // 2. Clear visual dots, then light up the current one
             for (let i = 0; i < beatsPerMeasure; i++) {
                 document.getElementById(`dot-${i}`).classList.remove('active', 'active-accent', 'active-prep');
             }
@@ -207,18 +408,17 @@
             const activeDot = document.getElementById(`dot-${currentBeat}`);
             
             if (currentBeat === 0) {
-                activeDot.classList.add('active-accent'); // Blue for Beat 1
-                chordDisplay.style.color = "#ffffff";     // Reset text color
+                activeDot.classList.add('active-accent'); 
+                chordDisplay.style.color = "#ffffff";     
             } else if (currentBeat === 3) {
-                activeDot.classList.add('active-prep');   // Orange for Beat 4 (Prep beat)
-                updateChord();                            // CHANGE CHORD JUST PRIOR TO NEW MEASURE
-                chordDisplay.style.color = "#ffaa00";     // Flash chord text orange to show it changed
+                activeDot.classList.add('active-prep');   
+                updateChord();                            
+                chordDisplay.style.color = "#ffaa00";     
             } else {
-                activeDot.classList.add('active');        // Green for 2, 3
-                chordDisplay.style.color = "#ffffff";     // Reset text color
+                activeDot.classList.add('active');        
+                chordDisplay.style.color = "#ffffff";     
             }
 
-            // 3. Move to the next beat
             currentBeat = (currentBeat + 1) % beatsPerMeasure;
         }
 
@@ -233,7 +433,6 @@
             const bpm = parseInt(bpmInput.value);
             const intervalMs = (60 / bpm) * 1000;
 
-            // Generate the very first chord before starting
             updateChord();
 
             currentBeat = 0; 
@@ -247,6 +446,7 @@
 
         function stopMetronome() {
             clearInterval(timerID);
+            window.speechSynthesis.cancel(); // Stop any ongoing speech
             chordDisplay.innerText = '-';
             chordDisplay.style.color = "#ffffff";
             
@@ -275,6 +475,10 @@
                 timerID = setInterval(triggerBeat, intervalMs);
             }
         });
+
+        // Initialize user preferences on page load
+        initializePreferences();
+
     </script>
 </body>
 </html>
