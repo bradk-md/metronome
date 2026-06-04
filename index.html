@@ -407,6 +407,379 @@
             osc.type = 'sine';
             osc.frequency.setValueAtTime(150, time);
             osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
+            gain.gain.setValueAtTime(1        }
+
+        .top-controls {
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input[type="number"] {
+            width: 70px;
+            padding: 10px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            border: none;
+            text-align: center;
+            background: #444455;
+            color: white;
+            outline: none;
+            font-weight: bold;
+        }
+
+        .measure-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .beat-dot {
+            width: 45px;
+            height: 45px;
+            border-radius: 50%;
+            background-color: #444455;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            color: #888;
+            transition: background-color 0.05s ease, box-shadow 0.05s ease;
+        }
+
+        .beat-dot.active-accent {
+            background-color: #4facfe;
+            color: #1e1e24;
+            box-shadow: 0 0 20px #4facfe;
+        }
+
+        .beat-dot.active {
+            background-color: #00ff88;
+            color: #1e1e24;
+            box-shadow: 0 0 20px #00ff88;
+        }
+
+        .beat-dot.active-prep {
+            background-color: #ffaa00;
+            color: #1e1e24;
+            box-shadow: 0 0 20px #ffaa00;
+        }
+
+        #chordDisplay {
+            font-size: 7rem;
+            font-weight: bold;
+            height: 140px;
+            line-height: 140px;
+            margin: 10px 0 30px 0;
+            color: #ffffff;
+            transition: color 0.1s;
+        }
+
+        button#startStopBtn {
+            background: #4facfe;
+            color: white;
+            border: none;
+            padding: 15px 50px;
+            font-size: 1.5rem;
+            border-radius: 50px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform 0.1s, background 0.2s;
+            margin-bottom: 20px;
+        }
+
+        button#startStopBtn:active {
+            transform: scale(0.95);
+        }
+
+        button#startStopBtn.playing {
+            background: #ff4b4b;
+        }
+
+        button#settingsToggleBtn {
+            background: transparent;
+            color: #a9b0c0;
+            border: 1px solid #444455;
+            padding: 8px 20px;
+            font-size: 1rem;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+            margin-top: 10px;
+        }
+
+        button#settingsToggleBtn:hover {
+            background: #444455;
+            color: #ffffff;
+        }
+
+        .settings-panel {
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: max-height 0.4s ease, opacity 0.4s ease, margin-top 0.4s ease;
+            background: #1e1e24;
+            border-radius: 10px;
+        }
+
+        .settings-panel.open {
+            max-height: 500px;
+            opacity: 1;
+            margin-top: 20px;
+            padding: 20px;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        .settings-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #2b2b36;
+            padding: 8px 15px;
+            border-radius: 8px;
+        }
+
+        select {
+            padding: 6px;
+            font-size: 1rem;
+            border-radius: 5px;
+            border: none;
+            background: #444455;
+            color: white;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="checkbox"]#voiceToggle {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            accent-color: #4facfe;
+        }
+
+        .chord-settings h3 {
+            margin: 0 0 15px 0;
+            font-size: 1rem;
+            color: #a9b0c0;
+        }
+
+        .chord-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .chord-label {
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .chord-label input {
+            display: none;
+        }
+
+        .chord-pill {
+            display: inline-block;
+            padding: 6px 12px;
+            background: #444455;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .chord-label input:checked + .chord-pill {
+            background: #4facfe;
+            color: #1e1e24;
+            box-shadow: 0 0 10px rgba(79, 172, 254, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Chord Practice Metronome</h1>
+        
+        <div class="top-controls">
+            <label for="bpm">BPM:</label>
+            <input type="number" id="bpm" value="50" min="10" max="240">
+        </div>
+
+        <div class="measure-indicator">
+            <div class="beat-dot" id="dot-0">1</div>
+            <div class="beat-dot" id="dot-1">2</div>
+            <div class="beat-dot" id="dot-2">3</div>
+            <div class="beat-dot" id="dot-3">4</div>
+        </div>
+
+        <div id="chordDisplay">-</div>
+
+        <button id="startStopBtn">START</button>
+        <br>
+        <button id="settingsToggleBtn">⚙️ Settings</button>
+
+        <div class="settings-panel" id="settingsPanel">
+            
+            <div class="settings-controls">
+                <div class="control-group">
+                    <label for="soundSelect">Sound:</label>
+                    <select id="soundSelect">
+                        <option value="beep">Electronic Beep</option>
+                        <option value="woodblock">Woodblock</option>
+                        <option value="rock">Rock Drum Kit</option>
+                        <option value="blues">Texas Blues Stomp</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label for="voiceToggle" style="cursor: pointer;">Voice Announce:</label>
+                    <input type="checkbox" id="voiceToggle">
+                </div>
+            </div>
+
+            <div class="chord-settings">
+                <h3>Select Practice Chords</h3>
+                <div class="chord-grid" id="chordGrid"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        const masterChords = [
+            'A', 'Am', 'B', 'Bm', 'C', 'Cm', 'D', 'Dm', 'E', 'Em', 'F', 'Fm', 'G', 'Gm'
+        ];
+        
+        const chordPronunciations = {
+            'A': 'A', 'Am': 'A minor', 'B': 'B', 'Bm': 'B minor',
+            'C': 'C', 'Cm': 'C minor', 'D': 'D', 'Dm': 'D minor',
+            'E': 'E', 'Em': 'E minor', 'F': 'F', 'Fm': 'F minor',
+            'G': 'G', 'Gm': 'G minor'
+        };
+
+        const defaultChords = ['C', 'A', 'G', 'E', 'D', 'Em'];
+        let activeChords = [];
+
+        let isPlaying = false;
+        let timerID;
+        let audioCtx;
+        let noiseBuffer; 
+        let currentBeat = 0; 
+        const beatsPerMeasure = 4;
+
+        const bpmInput = document.getElementById('bpm');
+        const soundSelect = document.getElementById('soundSelect');
+        const voiceToggle = document.getElementById('voiceToggle');
+        const startStopBtn = document.getElementById('startStopBtn');
+        const chordDisplay = document.getElementById('chordDisplay');
+        const chordGrid = document.getElementById('chordGrid');
+        
+        const settingsToggleBtn = document.getElementById('settingsToggleBtn');
+        const settingsPanel = document.getElementById('settingsPanel');
+
+        settingsToggleBtn.addEventListener('click', () => {
+            settingsPanel.classList.toggle('open');
+            if (settingsPanel.classList.contains('open')) {
+                settingsToggleBtn.innerText = '⚙️ Close Settings';
+            } else {
+                settingsToggleBtn.innerText = '⚙️ Settings';
+            }
+        });
+
+        function initializePreferences() {
+            const savedChords = localStorage.getItem('metronomeChords');
+            if (savedChords) {
+                activeChords = JSON.parse(savedChords);
+            } else {
+                activeChords = [...defaultChords];
+            }
+
+            masterChords.forEach(chord => {
+                const label = document.createElement('label');
+                label.className = 'chord-label';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = chord;
+                checkbox.checked = activeChords.includes(chord);
+                
+                checkbox.addEventListener('change', (e) => {
+                    if (e.target.checked) {
+                        activeChords.push(chord);
+                    } else {
+                        activeChords = activeChords.filter(c => c !== chord);
+                    }
+                    localStorage.setItem('metronomeChords', JSON.stringify(activeChords));
+                    if (activeChords.length === 0) chordDisplay.innerText = '-';
+                });
+
+                const pill = document.createElement('span');
+                pill.className = 'chord-pill';
+                pill.innerText = chord;
+
+                label.appendChild(checkbox);
+                label.appendChild(pill);
+                chordGrid.appendChild(label);
+            });
+
+            if (localStorage.getItem('metronomeSound')) {
+                soundSelect.value = localStorage.getItem('metronomeSound');
+            }
+            soundSelect.addEventListener('change', (e) => {
+                localStorage.setItem('metronomeSound', e.target.value);
+            });
+
+            const savedVoice = localStorage.getItem('metronomeVoice');
+            if (savedVoice !== null) {
+                voiceToggle.checked = savedVoice === 'true';
+            } else {
+                voiceToggle.checked = true; 
+            }
+            voiceToggle.addEventListener('change', (e) => {
+                localStorage.setItem('metronomeVoice', e.target.checked);
+            });
+        }
+
+        // --- DRUM SYNTHESIZER ENGINE ---
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                
+                const bufferSize = audioCtx.sampleRate * 2;
+                noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) {
+                    output[i] = Math.random() * 2 - 1;
+                }
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playKick(time) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain).connect(audioCtx.destination);
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(150, time);
+            osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
             gain.gain.setValueAtTime(1.5, time);
             gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
             osc.start(time);
