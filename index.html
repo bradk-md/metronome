@@ -159,6 +159,8 @@
         }
         #detectedChord.match { color: #00ff88; }
         #detectedChord.miss  { color: #ff4b4b; }
+        #detectedChord.stale { color: #555566; }
+        #detectStatus { height: 20px; font-size: 0.85rem; color: #888; }
 
         #detectVerdict { height: 22px; font-size: 1rem; font-weight: bold; }
         #detectVerdict.match { color: #00ff88; }
@@ -350,6 +352,7 @@
                 <div class="detect-label">You played:</div>
                 <div id="detectedChord">—</div>
                 <div id="detectVerdict"></div>
+                <div id="detectStatus"></div>
                 <div class="level-meter">
                     <div id="levelFill"></div>
                     <div id="levelThreshold"></div>
@@ -380,7 +383,7 @@
                 </div>
                 <div class="control-group">
                     <label for="sensitivity">Mic Sensitivity:</label>
-                    <input type="range" id="sensitivity" min="1" max="100" value="60">
+                    <input type="range" id="sensitivity" min="1" max="100" value="70">
                 </div>
                 <div class="control-group">
                     <label for="headphonesToggle" style="cursor: pointer;" title="Turn on if the metronome is playing through headphones, so the mic can listen continuously">Using Headphones:</label>
@@ -715,17 +718,26 @@
         // --- CHORD DETECTION ENGINE ---
         // Listens via the mic, builds a 12-note "chroma" profile from spectral peaks,
         // and matches it against harmonic-aware major/minor triad templates.
+        // Tuned for quiet sources (e.g. an unplugged electric): learns the room's noise
+        // floor, ignores off-pitch peaks (hum, fans), and votes across several frames.
         const NOTE_NAMES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
         const NATURAL_PC = { 'C':0, 'D':2, 'E':4, 'F':5, 'G':7, 'A':9, 'B':11 };
-        const FFT_SIZE = 16384;
-        const MATCH_THRESHOLD = 0.82;   // minimum template similarity to report a chord
-        const STABLE_FRAMES = 2;        // consecutive agreeing frames before display updates
+        const FFT_SIZE = 8192;          // ~170 ms window: quick response, short click gaps
+        const MATCH_THRESHOLD = 0.75;   // minimum template similarity to count a frame
+        const VOTE_FRAMES = 3;          // look at the last N usable frames...
+        const VOTE_NEEDED = 2;          // ...and show a chord when this many agree
+        const F_MIN = 70, F_MAX = 1000; // analysis band (Hz) — guitar body of the sound
+        const NOISE_MARGIN_DB = 8;      // a peak must stand this far above the learned room noise
+        const CENTS_TOLERANCE = 40;     // ignore peaks this far from a real note (hum, fan noise)
+        const TICK_MS = 50;
 
         let micStream = null, micSource = null, analyser = null, detectTimer = null;
         let freqData, timeData;
-        let smoothedChroma = new Float32Array(12);
+        let noisePower = null, noiseFrames = 0;
         let lastClickTime = -10;
-        let candidate = null, candidateCount = 0, lastHeardAt = 0;
+        let voiceUntil = 0;             // performance.now() time until which the voice may be talking
+        let votes = [], prevRms = 0, unclearFrames = 0, freshStrum = true, ringing = false;
+        let shownChord = null;          // chord currently on screen
         let playingChord = '';          // chord the player should be playing this measure
         let matchedThisMeasure = false;
         let score = { hits: 0, total: 0 };
@@ -734,6 +746,7 @@
         const detectBody = document.getElementById('detectBody');
         const detectedChordEl = document.getElementById('detectedChord');
         const detectVerdict = document.getElementById('detectVerdict');
+        const detectStatus = document.getElementById('detectStatus');
         const levelFill = document.getElementById('levelFill');
         const levelThreshold = document.getElementById('levelThreshold');
         const scoreDisplay = document.getElementById('scoreDisplay');
@@ -746,7 +759,7 @@
                 for (const minor of [false, true]) {
                     const t = new Float32Array(12);
                     for (const iv of [0, minor ? 3 : 4, 7]) {
-                        for (let h = 1; h <= 6; h++) {
+                        for (const h of [1, 2, 3, 4, 6]) {   // 5th overtone is suppressed in computeChroma
                             t[(root + iv + Math.round(12 * Math.log2(h))) % 12] += Math.pow(0.6, h - 1);
                         }
                     }
@@ -767,7 +780,7 @@
 
         function rmsThreshold() {
             const s = parseInt(sensitivityInput.value) / 100;
-            return 0.05 * Math.pow(1 - s, 2) + 0.001;
+            return 0.05 * Math.pow(1 - s, 2) + 0.0005;
         }
 
         function chordMatchesTarget(det, target) {
@@ -776,26 +789,56 @@
             return det.root === NATURAL_PC[target.replace('m', '')] && det.minor === minor;
         }
 
+        function bandBins() {
+            const binHz = audioCtx.sampleRate / FFT_SIZE;
+            return { binHz, kMin: Math.ceil(F_MIN / binHz), kMax: Math.floor(F_MAX / binHz) };
+        }
+
+        // While nobody is playing, keep a running average of the room's spectrum
+        function learnNoise() {
+            analyser.getFloatFrequencyData(freqData);
+            const { kMin, kMax } = bandBins();
+            if (!noisePower) noisePower = new Float32Array(freqData.length);
+            const a = noiseFrames < 10 ? 0.3 : 0.05;
+            for (let k = kMin - 1; k <= kMax + 1; k++) {
+                const p = Math.pow(10, freqData[k] / 10);
+                noisePower[k] = noiseFrames === 0 ? p : (1 - a) * noisePower[k] + a * p;
+            }
+            noiseFrames++;
+        }
+
         function computeChroma() {
             analyser.getFloatFrequencyData(freqData);
-            const sr = audioCtx.sampleRate;
-            const binHz = sr / FFT_SIZE;
-            const kMin = Math.ceil(70 / binHz), kMax = Math.floor(2000 / binHz);
+            const { binHz, kMin, kMax } = bandBins();
             let maxDb = -Infinity;
             for (let k = kMin; k <= kMax; k++) if (freqData[k] > maxDb) maxDb = freqData[k];
-            const floor = Math.max(maxDb - 50, -100);
-            const chroma = new Float32Array(12);
+            const floor = Math.max(maxDb - 45, -110);
+            const useNoise = noisePower && noiseFrames >= 5;
+            const peaks = [];
             for (let k = kMin; k <= kMax; k++) {
                 const b = freqData[k];
                 if (b < floor || b <= freqData[k - 1] || b < freqData[k + 1]) continue;
+                if (useNoise && b < 10 * Math.log10(noisePower[k] + 1e-20) + NOISE_MARGIN_DB) continue;
                 // Parabolic interpolation for a more precise peak frequency
                 const a = freqData[k - 1], g = freqData[k + 1];
                 const denom = a - 2 * b + g;
                 const p = denom !== 0 ? 0.5 * (a - g) / denom : 0;
-                const freq = (k + p) * binHz;
-                const pc = ((Math.round(69 + 12 * Math.log2(freq / 440)) % 12) + 12) % 12;
-                chroma[pc] += Math.pow(10, b / 20);
+                const midi = 69 + 12 * Math.log2(((k + p) * binHz) / 440);
+                const nearest = Math.round(midi);
+                if (Math.abs(midi - nearest) * 100 > CENTS_TOLERANCE) continue;
+                // Weight is compressed so quiet strings still count next to loud ones
+                peaks.push({ f: (k + p) * binHz, pc: ((nearest % 12) + 12) % 12, w: Math.pow(10, b / 20 * 0.3) });
             }
+            if (peaks.length < 3) return null;
+            // Bright guitars (esp. unplugged electrics) have strong 5th/7th overtones that land on
+            // the major 3rd / flat 7th of the bass note and make minor chords look major. Discount them.
+            for (const q of peaks) {
+                for (const o of peaks) {
+                    if (Math.abs(q.f / 5 / o.f - 1) < 0.02 || Math.abs(q.f / 7 / o.f - 1) < 0.02) q.w *= 0.25;
+                }
+            }
+            const chroma = new Float32Array(12);
+            for (const q of peaks) chroma[q.pc] += q.w;
             return normalize(chroma);
         }
 
@@ -810,7 +853,8 @@
         }
 
         function showDetection(det) {
-            detectedChordEl.classList.remove('match', 'miss');
+            shownChord = det;
+            detectedChordEl.classList.remove('match', 'miss', 'stale');
             detectVerdict.classList.remove('match', 'miss');
             if (!det) {
                 detectedChordEl.innerText = '—';
@@ -834,6 +878,19 @@
             }
         }
 
+        // New measure: keep the last chord visible but greyed so it's clearly "previous"
+        function markStale() {
+            if (!shownChord) return;
+            detectedChordEl.classList.remove('match', 'miss');
+            detectedChordEl.classList.add('stale');
+            detectVerdict.classList.remove('match', 'miss');
+            detectVerdict.innerText = '';
+        }
+
+        function setStatus(text) {
+            if (detectStatus.innerText !== text) detectStatus.innerText = text;
+        }
+
         function updateScoreDisplay() {
             if (!micStream) { scoreDisplay.innerText = ''; return; }
             if (score.total === 0) { scoreDisplay.innerText = isPlaying ? 'Score: — ' : 'Free play: strum any chord'; return; }
@@ -841,43 +898,74 @@
             scoreDisplay.innerText = `Score: ${score.hits} / ${score.total} measures (${pct}%)`;
         }
 
+        function clickGateSeconds() {
+            // Only the first instant of each sound is inside the 70–1000 Hz band we analyse
+            const kit = soundSelect.value;
+            return { beep: 0.10, woodblock: 0.06, rock: 0.15, blues: 0.25 }[kit] || 0.15;
+        }
+
         function detectTick() {
             analyser.getFloatTimeDomainData(timeData);
             let sum = 0;
-            for (let i = timeData.length - 4096; i < timeData.length; i++) sum += timeData[i] * timeData[i];
-            const rms = Math.sqrt(sum / 4096);
+            const n = Math.min(4096, timeData.length);
+            for (let i = timeData.length - n; i < timeData.length; i++) sum += timeData[i] * timeData[i];
+            const rms = Math.sqrt(sum / n);
             const thr = rmsThreshold();
-            levelFill.style.width = Math.min(100, rms / 0.1 * 100) + '%';
-            levelThreshold.style.left = Math.min(100, thr / 0.1 * 100) + '%';
+            levelFill.style.width = Math.min(100, rms / 0.05 * 100) + '%';
+            levelThreshold.style.left = Math.min(100, thr / 0.05 * 100) + '%';
 
-            // Ignore frames contaminated by the metronome click or voice (unless on headphones)
             const windowSec = FFT_SIZE / audioCtx.sampleRate;
-            const kit = soundSelect.value;
-            const clickDecay = (kit === 'beep' || kit === 'woodblock') ? 0.12 : (kit === 'rock' ? 0.25 : 0.6);
             const gated = !headphonesToggle.checked && (
-                (isPlaying && audioCtx.currentTime - lastClickTime < windowSec + clickDecay) ||
-                window.speechSynthesis.speaking
+                (isPlaying && audioCtx.currentTime - lastClickTime < windowSec + clickGateSeconds()) ||
+                performance.now() < voiceUntil
             );
 
-            if (rms < thr) {
-                if (performance.now() - lastHeardAt > 1500) { showDetection(null); candidate = null; }
+            // A strum must cross the trigger line to start, but we keep following it as it
+            // fades (down to ~1/3 of the line) so a quiet, decaying chord still gets read
+            if (rms >= thr) ringing = true;
+            else if (rms < thr * 0.35) ringing = false;
+            if (!ringing) {
+                if (!gated) learnNoise();
+                prevRms = rms;
+                setStatus(shownChord ? '' : 'Listening… strum a chord');
                 return;
             }
-            if (gated) return;
-            lastHeardAt = performance.now();
+            // A fresh strum: forget votes from the previous chord so the new one locks in fast
+            if (rms > prevRms * 2) { votes = []; freshStrum = true; }
+            prevRms = rms;
+
+            if (gated) { setStatus('(pausing for the metronome click)'); return; }
 
             const chroma = computeChroma();
-            for (let i = 0; i < 12; i++) smoothedChroma[i] = 0.5 * smoothedChroma[i] + 0.5 * chroma[i];
-            const det = bestChord(normalize(Float32Array.from(smoothedChroma)));
-            if (det.score < MATCH_THRESHOLD) return;
-
-            if (candidate && candidate.name === det.name) {
-                candidateCount++;
-            } else {
-                candidate = det;
-                candidateCount = 1;
+            if (!chroma) {
+                if (++unclearFrames >= 6) setStatus('Hearing sound, but no clear notes — move the mic closer');
+                return;
             }
-            if (candidateCount >= STABLE_FRAMES) showDetection(det);
+            unclearFrames = 0;
+            const det = bestChord(chroma);
+            votes.push(det.score >= MATCH_THRESHOLD ? det.name : null);
+            if (votes.length > VOTE_FRAMES) votes.shift();
+
+            const tally = {};
+            votes.forEach(v => { if (v) tally[v] = (tally[v] || 0) + 1; });
+            // First chord of a strum needs VOTE_NEEDED agreeing frames; replacing a chord
+            // already shown for this strum needs every recent frame to agree (stops flicker)
+            const needed = (freshStrum || !shownChord) ? VOTE_NEEDED : VOTE_FRAMES;
+            const winner = Object.keys(tally).find(name => tally[name] >= needed);
+            if (winner) {
+                const tpl = chordTemplates.find(t => t.name === winner);
+                // While a strum is fading, the thinner strings die first and can fool the read,
+                // so a fading tail can confirm a chord but never change it
+                const fading = rms < thr && !freshStrum;
+                if (!shownChord || detectedChordEl.classList.contains('stale') ||
+                    (shownChord.name !== winner && !fading)) {
+                    showDetection(tpl);
+                }
+                freshStrum = false;
+                setStatus('');
+            } else {
+                setStatus(`Not sure yet — closest: ${det.name}`);
+            }
         }
 
         async function startMic() {
@@ -899,13 +987,14 @@
             micSource.connect(analyser);   // not connected to speakers — avoids feedback
             freqData = new Float32Array(analyser.frequencyBinCount);
             timeData = new Float32Array(FFT_SIZE);
-            smoothedChroma = new Float32Array(12);
-            detectTimer = setInterval(detectTick, 100);
+            noisePower = null; noiseFrames = 0; votes = [];
+            detectTimer = setInterval(detectTick, TICK_MS);
 
             micBtn.innerText = '🎤 Listening… (click to stop)';
             micBtn.classList.add('listening');
             detectBody.classList.add('show');
             showDetection(null);
+            setStatus('Listening… let it hear the room for a second, then strum');
             updateScoreDisplay();
         }
 
@@ -948,6 +1037,8 @@
                 const spokenText = chordPronunciations[newChord] || newChord;
                 const utterance = new SpeechSynthesisUtterance(spokenText);
                 utterance.rate = 1.3; 
+                voiceUntil = performance.now() + 900;    // safety cap in case onend never fires
+                utterance.onend = utterance.onerror = () => { voiceUntil = performance.now() + 80; };
                 window.speechSynthesis.speak(utterance);
             }
         }
@@ -970,7 +1061,7 @@
                 }
                 playingChord = lastChord;
                 matchedThisMeasure = false;
-                if (micStream) showDetection(null);
+                if (micStream) { markStale(); votes = []; }
 
                 activeDot.classList.add('active-accent');
                 chordDisplay.style.color = "#ffffff";     
